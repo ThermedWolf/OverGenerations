@@ -1,0 +1,3 @@
+// Root build file. All real configuration lives in the loader subprojects
+// (fabric/, neoforge/); shared sources live in common/ and are compiled into
+// both loader jars.

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "${mod_id}",
+  "version": "${version}",
+  "name": "OverGenerations",
+  "description": "Smoother overworld terrain with real mountains and valleys, real-world-inspired biomes, and custom structures. Every setting is configurable per world.",
+  "authors": ["ThermedWolf"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["io.github.thermedwolf.overgenerations.fabric.OverGenerationsFabric"],
+    "client": ["io.github.thermedwolf.overgenerations.fabric.client.OverGenerationsFabricClient"]
+  },
+  "mixins": ["overgenerations.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

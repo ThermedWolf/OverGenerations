@@ -1,0 +1,31 @@
+# Metadata for the NeoForge loader. Tokens are expanded by the
+# generateModMetadata task; see the official MDK for the full field reference.
+license="${mod_license}"
+issueTrackerURL="https://github.com/ThermedWolf/OverGenerations/issues"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+displayURL="https://github.com/ThermedWolf/OverGenerations"
+authors="ThermedWolf"
+description='''
+Smoother overworld terrain with real mountains and valleys, real-world-inspired biomes, and custom structures. Every setting is configurable per world.
+'''
+
+[[mixins]]
+config="${mod_id}.mixins.json"
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neo_version},)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"

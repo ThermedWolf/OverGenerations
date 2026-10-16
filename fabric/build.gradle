@@ -1,0 +1,44 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loomVersion}"
+}
+
+version = project.modVersion
+group = project.modGroup
+
+base {
+    archivesName = "OverGenerations-Fabric-${project.minecraftVersion}"
+}
+
+// Shared code and data are compiled straight into every loader jar so there is
+// exactly one source of truth (Minecraft uses Mojang mappings on both loaders).
+sourceSets.main.java.srcDir(rootProject.file('common/src/main/java'))
+sourceSets.main.resources.srcDir(rootProject.file('common/src/main/resources'))
+
+dependencies {
+    // Minecraft 26.3 ships unobfuscated, so no mappings are needed.
+    minecraft "com.mojang:minecraft:${project.minecraftVersion}"
+    implementation "net.fabricmc:fabric-loader:${project.fabricLoaderVersion}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabricApiVersion}"
+}
+
+processResources {
+    var replaceProperties = [
+            mod_id : project.modId,
+            version: project.modVersion,
+    ]
+    inputs.properties replaceProperties
+    filesMatching(['fabric.mod.json', '*.mixins.json']) {
+        expand replaceProperties
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(project.javaToolchainVersion as int)
+    }
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
