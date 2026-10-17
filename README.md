@@ -37,7 +37,7 @@ also be switchable on existing worlds via `/overgenerations` (planned).
 | Milestone | Deliverable | Status |
 |---|---|---|
 | M0 | Build scaffold, both loaders, CI, public repo | ✅ done |
-| M1 | Per-world settings + New World screen integration | planned |
+| M1 | Per-world settings + New World screen integration | ✅ done |
 | M2 | Custom terrain: mountains, valleys, smooth transitions | planned |
 | M3 | Real-world biomes + biome size setting | planned |
 | M4 | Structures pipeline (template wiring, All/Normal/Off gating) | planned |
