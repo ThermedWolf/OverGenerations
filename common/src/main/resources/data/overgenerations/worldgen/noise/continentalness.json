@@ -11,6 +11,7 @@
     1.0
   ],
   "base_amplitude": 0.8880832896205223,
-  "base_octave": -10,
-  "octave_count": 9
+  "base_octave": -9,
+  "octave_count": 9,
+  "firstOctave": -10
 }

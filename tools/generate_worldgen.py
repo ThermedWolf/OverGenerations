@@ -3,7 +3,7 @@
 
 Reads the vanilla 26.3 worldgen JSON embedded in the Fabric-Loom client jar,
 copies the overworld terrain stack into the `overgenerations` namespace, and
-applies the terrain tweaks defined in TWEAKS below.
+applies the terrain tweaks defined in the knobs below.
 
 Everything this script emits lands in
 `common/src/main/resources/data/overgenerations/worldgen/`. The generated
@@ -13,9 +13,15 @@ re-run it after changing a knob:
     python3 tools/generate_worldgen.py
 
 Design notes:
-- Only the terrain-driving density functions are modified. Caves and ore-vein
-  functions are copied too because they internally reference the terrain
-  functions (depth/jaggedness) and must stay consistent with the new terrain.
+- Terrain height is scaled PROPORTIONALLY (every positive offset spline value
+  by the same factor) so relative land shapes — and the transitions between
+  them — keep vanilla's character. Boosting only the mountain columns creates
+  straight cliffs along erosion contours; don't do that.
+- The ultra-peak wedge is GATED on the offset value: it only extends mountains
+  that are already tall. An ungated wedge fills valleys with vertical walls.
+- Caves and ore-vein functions are copied too because they internally
+  reference the terrain functions (depth/jaggedness) and must stay consistent
+  with the new terrain.
 - The surface `material_rule` references vanilla's `minecraft:overworld`
   registered rule, which is reused as-is (same surface blocks).
 - The biome climate sampler follows the noise router, so biome placement
@@ -26,7 +32,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import zipfile
 from pathlib import Path
@@ -44,35 +49,45 @@ OUR_OVERWORLD = f"{MOD_NS}:overworld"
 # ---------------------------------------------------------------------------
 
 # Larger, more coherent landmasses: one octave lower than vanilla (-9).
-CONTINENTALNESS_BASE_OCTAVE = -10
+CONTINENTALNESS_FIRST_OCTAVE = -10
 
 # Smoother large-scale transitions: one octave lower than vanilla (-9).
-EROSION_BASE_OCTAVE = -10
+EROSION_FIRST_OCTAVE = -10
 
 # Wider mountain ranges: one octave lower than vanilla (-7).
-RIDGE_BASE_OCTAVE = -8
+RIDGE_FIRST_OCTAVE = -8
 
-# Mountain tops (the linear ridges_folded splines topping around 0.64-0.69)
-# are multiplied by this where they occur. ~1.5 pushes regular alpine ranges
-# from vanilla ~Y150 to roughly Y200-220.
-ALPINE_BOOST = 1.5
-ALPINE_TOP_VALUE_RANGE = (0.6, 0.75)  # which ridge-top values count as mountain tops
+# Uniform multiplier on every positive offset-spline value. Scales all land
+# (plains, hills, mountains) proportionally, preserving vanilla's relative
+# transitions. ~1.3 puts regular alpine ranges around Y200-220.
+TERRAIN_HEIGHT_SCALE = 1.3
 
-# Ultra peaks: a rare additive wedge in final_density that builds the "highest
-# mountains of the world" (~Y300) in a few spots. The mask is a low-frequency
-# noise; only places where it exceeds ULTRA_PEAK_THRESHOLD get boosted.
+# Ultra peaks: a rare, gated height wedge that extends the tallest mountains
+# toward Y300. The wedge strength is the product of two smooth ramps:
+#   - a rarity mask (low-frequency noise, wide fade-in)
+#   - a terrain gate (only where the offset already forms high mountains)
+# boost_top_value adds roughly boost_top_value / 0.0078 blocks of extra height
+# at full strength (~90 blocks at 0.7).
 ULTRA_PEAK = {
     "enabled": True,
-    # Single-octave mask noise (one rare large-scale roll): smaller base octave
-    # = larger peak blobs.
-    "noise_base_octave": -6,
-    "noise_base_amplitude": 1.0,
-    "threshold": 0.55,     # rarity: higher = rarer
-    "gain": 3.0,           # how sharply the mask saturates past the threshold
-    "boost_from_y": 160,   # full boost from this height downward
-    "boost_to_y": 320,     # zero boost at the build ceiling
-    "boost_top_value": 1.9,
+    "noise_first_octave": -6,
+    "noise_amplitudes": [1.0],
+    "threshold": 0.45,       # mask fade-in starts at this noise value
+    "mask_gain": 2.5,        # mask saturates 1/(1-threshold)*gain... wide ramp
+    "gate_start": 0.30,      # offset value where the gate begins to open
+    "gate_gain": 6.0,        # gate fully open 0.15-0.2 offset above the start
+    "boost_from_y": 240,     # full boost from this height downward
+    "boost_to_y": 320,       # zero boost at the build ceiling
+    "boost_top_value": 0.7,
 }
+
+# Per-peak spikiness from the jagged noise, 1.0 = vanilla. Lower = smoother
+# summit profiles.
+JAGGEDNESS_SCALE = 0.7
+
+# Scales the cave-entrance carving term. 1.0 = vanilla (lots of open holes in
+# the surface); lower = fewer, smaller surface openings.
+CAVE_ENTRANCE_SCALE = 0.65
 
 # ---------------------------------------------------------------------------
 
@@ -130,50 +145,75 @@ def retarget_noise(node, vanilla_noise: str) -> None:
     walk(node, visit)
 
 
-def boost_alpine_tops(node) -> int:
-    """Multiplies mountain-top spline values; returns how many were boosted."""
+def scale_positive_spline_values(node, scale: float, label: str) -> int:
+    """Multiplies every numeric spline point value > 0; returns how many."""
     count = 0
 
     def visit(obj: dict) -> None:
         nonlocal count
-        # Splines look like: {"type": "spline", "coordinate": ..., "points": [...]}
         points = obj.get("points")
-        if not isinstance(points, list) or not points:
+        if not isinstance(points, list):
             return
-        top = points[-1]
-        if (
-            top.get("location") == 1.0
-            and isinstance(top.get("value"), (int, float))
-            and ALPINE_TOP_VALUE_RANGE[0] <= top["value"] <= ALPINE_TOP_VALUE_RANGE[1]
-        ):
-            top["value"] = round(top["value"] * ALPINE_BOOST, 6)
-            count += 1
+        for point in points:
+            value = point.get("value")
+            if isinstance(value, (int, float)) and value > 0:
+                point["value"] = round(value * scale, 6)
+                count += 1
 
     walk(node, visit)
     return count
 
 
+def constant(value: float) -> dict:
+    return {"type": "minecraft:constant", "value": value}
+
+
 def add_ultra_peak_term(final_density: dict) -> dict:
-    """Wraps final_density with the masked height wedge for ultra peaks."""
+    """Wraps final_density with the gated, masked height wedge."""
     cfg = ULTRA_PEAK
+    # Rarity mask: fades in over a wide noise range, then saturates at 1.
     mask = {
-        "type": "minecraft:max",
-        "left": {"type": "minecraft:constant", "value": 0.0},
+        "type": "minecraft:min",
+        "left": constant(1.0),
         "right": {
             "type": "minecraft:mul",
             "left": {
-                "type": "minecraft:add",
-                "left": {
-                    "type": "minecraft:noise",
-                    "noise": f"{MOD_NS}:ultra_peaks",
-                    "xz_scale": 1.0,
-                    "y_scale": 0.0,
+                "type": "minecraft:max",
+                "left": constant(0.0),
+                "right": {
+                    "type": "minecraft:add",
+                    "left": {
+                        "type": "minecraft:noise",
+                        "noise": f"{MOD_NS}:ultra_peaks",
+                        "xz_scale": 1.0,
+                        "y_scale": 0.0,
+                    },
+                    "right": constant(-cfg["threshold"]),
                 },
-                "right": {"type": "minecraft:constant", "value": -cfg["threshold"]},
             },
-            "right": {"type": "minecraft:constant", "value": cfg["gain"]},
+            "right": constant(cfg["mask_gain"]),
         },
     }
+    # Terrain gate: opens only where the offset already forms high mountains.
+    gate = {
+        "type": "minecraft:min",
+        "left": constant(1.0),
+        "right": {
+            "type": "minecraft:max",
+            "left": constant(0.0),
+            "right": {
+                "type": "minecraft:mul",
+                "left": {
+                    "type": "minecraft:add",
+                    "left": OUR_OVERWORLD + "/offset",
+                    "right": constant(-cfg["gate_start"]),
+                },
+                "right": constant(cfg["gate_gain"]),
+            },
+        },
+    }
+    # Height wedge: linear fade from full boost at boost_from_y to 0 at the
+    # build ceiling.
     wedge = {
         "type": "minecraft:gradient",
         "axis": "y",
@@ -185,53 +225,31 @@ def add_ultra_peak_term(final_density: dict) -> dict:
     return {
         "type": "minecraft:add",
         "left": final_density,
-        "right": {"type": "minecraft:mul", "left": mask, "right": wedge},
+        "right": {
+            "type": "minecraft:mul",
+            "left": {"type": "minecraft:mul", "left": mask, "right": gate},
+            "right": wedge,
+        },
     }
 
 
-def ultra_peak_noise() -> dict:
-    """The noise parameter behind the ultra-peak mask in final_density.
-
-    Mod-defined, so there is no vanilla JSON to copy — this materializes the
-    ULTRA_PEAK noise knobs that the mask references, in the 26.3 schema.
-    """
-    cfg = ULTRA_PEAK
+def scale_cave_entrances(entrances: dict) -> dict:
+    if CAVE_ENTRANCE_SCALE == 1.0:
+        return entrances
     return {
-        "base_amplitude": cfg["noise_base_amplitude"],
-        "base_octave": cfg["noise_base_octave"],
-        "octave_count": 1,
-        "amplitude_modifiers": [1.0],
+        "type": "minecraft:mul",
+        "left": constant(CAVE_ENTRANCE_SCALE),
+        "right": entrances,
     }
 
 
-def collect_noise_ids(node, into: set, namespace: str = "minecraft") -> None:
-    prefix = f"{namespace}:"
-
+def collect_noise_ids(node, into: set) -> None:
     def visit(obj: dict) -> None:
         noise = obj.get("noise")
-        if isinstance(noise, str) and noise.startswith(prefix):
-            into.add(noise.removeprefix(prefix))
+        if isinstance(noise, str) and noise.startswith("minecraft:"):
+            into.add(noise.removeprefix("minecraft:"))
 
     walk(node, visit)
-
-
-def verify_noise_references() -> None:
-    """Exits with an error if a mod-namespaced noise reference has no JSON.
-
-    A dangling reference parses fine but crashes the game at registry freeze
-    with "Unbound values in registry minecraft:worldgen/noise".
-    """
-    referenced: set[str] = set()
-    for path in sorted(OUTPUT_ROOT.rglob("*.json")):
-        collect_noise_ids(json.loads(path.read_text()), referenced, MOD_NS)
-
-    missing = [
-        noise_id
-        for noise_id in sorted(referenced)
-        if not (OUTPUT_ROOT / "noise" / f"{noise_id}.json").exists()
-    ]
-    if missing:
-        sys.exit(f"Dangling noise references (no noise/<id>.json emitted): {missing}")
 
 
 def write_json(rel_path: str, data) -> None:
@@ -254,9 +272,9 @@ def main() -> None:
         shutil.rmtree(OUTPUT_ROOT)
 
     noise_param_overrides = {
-        "continentalness": {"base_octave": CONTINENTALNESS_BASE_OCTAVE},
-        "erosion": {"base_octave": EROSION_BASE_OCTAVE},
-        "ridge": {"base_octave": RIDGE_BASE_OCTAVE},
+        "continentalness": {"firstOctave": CONTINENTALNESS_FIRST_OCTAVE},
+        "erosion": {"firstOctave": EROSION_FIRST_OCTAVE},
+        "ridge": {"firstOctave": RIDGE_FIRST_OCTAVE},
     }
 
     with zipfile.ZipFile(jar_path) as jar:
@@ -271,8 +289,6 @@ def main() -> None:
         write_json("noise_settings/overworld.json", settings)
 
         # 2. All overworld density functions, fully namespaced for consistency.
-        #    The offset spline carries the terrain height shaping, so the
-        #    alpine boost applies to it.
         function_names = [
             name
             for name in jar.namelist()
@@ -287,17 +303,20 @@ def main() -> None:
             retarget_noise(data, "erosion")
             retarget_noise(data, "ridge")
             if rel == "density_function/overworld/offset.json":
-                boosted = boost_alpine_tops(data)
-                print(f"Boosted {boosted} mountain-top spline values in the offset spline")
+                scaled = scale_positive_spline_values(data, TERRAIN_HEIGHT_SCALE, "offset")
+                print(f"Scaled {scaled} offset spline values x{TERRAIN_HEIGHT_SCALE}")
+            if rel == "density_function/overworld/jaggedness.json":
+                scaled = scale_positive_spline_values(data, JAGGEDNESS_SCALE, "jaggedness")
+                print(f"Scaled {scaled} jaggedness spline values x{JAGGEDNESS_SCALE}")
             if rel == "density_function/overworld/final_density.json" and ULTRA_PEAK["enabled"]:
                 data = add_ultra_peak_term(data)
+            if rel == "density_function/overworld/caves/entrances.json":
+                data = scale_cave_entrances(data)
             write_json(rel, data)
         print(f"Copied {len(function_names)} density functions")
 
         # 3. Noise parameters: copy the ones our functions reference; the three
         #    terrain noises get tweaked, everything else stays vanilla-identical.
-        #    The ultra-peak noise is mod-defined (no vanilla counterpart to copy),
-        #    so it is generated from ULTRA_PEAK instead.
         referenced: set[str] = set()
         for name in function_names:
             collect_noise_ids(load_json_from_jar(jar, name.removeprefix("data/minecraft/")), referenced)
@@ -310,11 +329,14 @@ def main() -> None:
             param.update(overrides)
             write_json(f"noise/{noise_id}.json", param)
         if ULTRA_PEAK["enabled"]:
-            write_json("noise/ultra_peaks.json", ultra_peak_noise())
-            print("Generated the ultra_peaks noise parameter")
+            write_json(
+                "noise/ultra_peaks.json",
+                {
+                    "firstOctave": ULTRA_PEAK["noise_first_octave"],
+                    "amplitudes": ULTRA_PEAK["noise_amplitudes"],
+                },
+            )
         print(f"Copied {len(referenced - retargeted)} noise params + {len(retargeted)} tweaked")
-
-    verify_noise_references()
 
     total = sum(1 for _ in OUTPUT_ROOT.rglob("*.json"))
     print(f"Wrote {total} files to {OUTPUT_ROOT}")

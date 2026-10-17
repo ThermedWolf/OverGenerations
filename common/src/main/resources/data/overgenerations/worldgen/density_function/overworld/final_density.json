@@ -138,29 +138,68 @@
   "right": {
     "type": "minecraft:mul",
     "left": {
-      "type": "minecraft:max",
+      "type": "minecraft:mul",
       "left": {
-        "type": "minecraft:constant",
-        "value": 0.0
-      },
-      "right": {
-        "type": "minecraft:mul",
+        "type": "minecraft:min",
         "left": {
-          "type": "minecraft:add",
+          "type": "minecraft:constant",
+          "value": 1.0
+        },
+        "right": {
+          "type": "minecraft:mul",
           "left": {
-            "type": "minecraft:noise",
-            "noise": "overgenerations:ultra_peaks",
-            "xz_scale": 1.0,
-            "y_scale": 0.0
+            "type": "minecraft:max",
+            "left": {
+              "type": "minecraft:constant",
+              "value": 0.0
+            },
+            "right": {
+              "type": "minecraft:add",
+              "left": {
+                "type": "minecraft:noise",
+                "noise": "overgenerations:ultra_peaks",
+                "xz_scale": 1.0,
+                "y_scale": 0.0
+              },
+              "right": {
+                "type": "minecraft:constant",
+                "value": -0.45
+              }
+            }
           },
           "right": {
             "type": "minecraft:constant",
-            "value": -0.55
+            "value": 2.5
           }
+        }
+      },
+      "right": {
+        "type": "minecraft:min",
+        "left": {
+          "type": "minecraft:constant",
+          "value": 1.0
         },
         "right": {
-          "type": "minecraft:constant",
-          "value": 3.0
+          "type": "minecraft:max",
+          "left": {
+            "type": "minecraft:constant",
+            "value": 0.0
+          },
+          "right": {
+            "type": "minecraft:mul",
+            "left": {
+              "type": "minecraft:add",
+              "left": "overgenerations:overworld/offset",
+              "right": {
+                "type": "minecraft:constant",
+                "value": -0.3
+              }
+            },
+            "right": {
+              "type": "minecraft:constant",
+              "value": 6.0
+            }
+          }
         }
       }
     },
@@ -169,8 +208,8 @@
       "axis": "y",
       "from_coordinate": 320,
       "from_value": 0.0,
-      "to_coordinate": 160,
-      "to_value": 1.9
+      "to_coordinate": 240,
+      "to_value": 0.7
     }
   }
 }
