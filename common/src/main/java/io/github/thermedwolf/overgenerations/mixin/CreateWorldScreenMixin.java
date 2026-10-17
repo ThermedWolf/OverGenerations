@@ -5,8 +5,8 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import io.github.thermedwolf.overgenerations.OverGenerations;
 import io.github.thermedwolf.overgenerations.client.OverGenerationsClientConfig;
 import io.github.thermedwolf.overgenerations.client.OverGenerationsTab;
-import io.github.thermedwolf.overgenerations.world.WorldGenSettings;
 import io.github.thermedwolf.overgenerations.world.WorldSettingsStore;
+import io.github.thermedwolf.overgenerations.worldgen.OverworldGeneratorSwap;
 import net.minecraft.client.gui.components.tabs.MenuTabBar;
 import net.minecraft.client.gui.components.tabs.Tab;
 import net.minecraft.client.gui.screens.worldselection.CreateWorldScreen;
@@ -15,6 +15,8 @@ import net.minecraft.core.LayeredRegistryAccess;
 import net.minecraft.server.ReloadableServerResources;
 import net.minecraft.server.RegistryLayer;
 import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.level.levelgen.WorldGenSettings;
+import net.minecraft.world.level.levelgen.presets.WorldPresets;
 import net.minecraft.world.level.storage.LevelDataAndDimensions;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.LevelStorageSource;
@@ -40,10 +42,11 @@ import java.util.Optional;
 public abstract class CreateWorldScreenMixin {
 
     @Unique
-    private final WorldGenSettings overgenerations$settings = OverGenerationsClientConfig.loadDefaults();
+    private final io.github.thermedwolf.overgenerations.world.WorldGenSettings overgenerations$settings =
+        OverGenerationsClientConfig.loadDefaults();
 
     @Unique
-    public WorldGenSettings overgenerations$getSettings() {
+    public io.github.thermedwolf.overgenerations.world.WorldGenSettings overgenerations$getSettings() {
         return overgenerations$settings;
     }
 
@@ -78,6 +81,11 @@ public abstract class CreateWorldScreenMixin {
         Optional<GameRules> gameRules,
         Operation<Void> original
     ) {
+        WorldGenSettings effectiveSettings = worldDataAndGenSettings.genSettings();
+        if (overgenerations$shouldSwapTerrain()) {
+            effectiveSettings = OverworldGeneratorSwap.swap(registryAccess, effectiveSettings);
+            OverGenerations.LOGGER.info("Using OverGenerations terrain for this world");
+        }
         try {
             Path worldRoot = levelSourceAccess.getLevelPath(LevelResource.ROOT);
             WorldSettingsStore.save(worldRoot, overgenerations$settings);
@@ -86,6 +94,26 @@ public abstract class CreateWorldScreenMixin {
             // The world is still created; it just runs with the mod inert.
             OverGenerations.LOGGER.error("Failed to save OverGenerations settings, mod will stay inactive", e);
         }
-        original.call(instance, levelSourceAccess, serverResources, registryAccess, worldDataAndGenSettings, gameRules);
+        original.call(
+            instance,
+            levelSourceAccess,
+            serverResources,
+            registryAccess,
+            new LevelDataAndDimensions.WorldDataAndGenSettings(worldDataAndGenSettings.data(), effectiveSettings),
+            gameRules
+        );
+    }
+
+    @Unique
+    private boolean overgenerations$shouldSwapTerrain() {
+        if (!overgenerations$settings.isEnabled() || !overgenerations$settings.isCustomTerrain()) {
+            return false;
+        }
+        // Only take over the default world type; flat, large biomes, amplified
+        // and debug worlds keep the generator the player explicitly chose.
+        CreateWorldScreen self = (CreateWorldScreen) (Object) this;
+        return self.getUiState().getWorldType().preset().unwrapKey()
+            .map(key -> key.equals(WorldPresets.NORMAL))
+            .orElse(false);
     }
 }
