@@ -79,4 +79,30 @@ public final class WorldGenSettings {
     public static int clampBiomeScale(int biomeScale) {
         return Math.clamp(biomeScale, MIN_BIOME_SCALE, MAX_BIOME_SCALE);
     }
+
+    @Override
+    public boolean equals(Object obj) {
+        return obj instanceof WorldGenSettings other
+            && enabled == other.enabled
+            && customTerrain == other.customTerrain
+            && biomeScale == other.biomeScale
+            && structuresMode == other.structuresMode
+            && hideExposedOres == other.hideExposedOres;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Boolean.hashCode(enabled);
+        result = 31 * result + Boolean.hashCode(customTerrain);
+        result = 31 * result + biomeScale;
+        result = 31 * result + structuresMode.hashCode();
+        result = 31 * result + Boolean.hashCode(hideExposedOres);
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "WorldGenSettings[enabled=%s, customTerrain=%s, biomeScale=%dx, structuresMode=%s, hideExposedOres=%s]"
+            .formatted(enabled, customTerrain, biomeScale, structuresMode, hideExposedOres);
+    }
 }

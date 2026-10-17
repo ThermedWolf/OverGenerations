@@ -1,0 +1,12 @@
+{
+  "overgenerations.tab.title": "OverGenerations",
+  "overgenerations.setting.enabled": "Enable OverGenerations",
+  "overgenerations.setting.customTerrain": "Custom terrain generation",
+  "overgenerations.setting.biomeSize": "Biome size",
+  "overgenerations.setting.biomeSize.value": "Biome size: %sx",
+  "overgenerations.setting.structures": "Structures",
+  "overgenerations.setting.hideExposedOres": "Hide exposed ores",
+  "overgenerations.structures.all": "All",
+  "overgenerations.structures.normal_only": "Normal only",
+  "overgenerations.structures.off": "Off"
+}
