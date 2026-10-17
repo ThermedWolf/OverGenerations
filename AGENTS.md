@@ -89,6 +89,11 @@ Shared tests live in `common/src/test/java` and run in **both** modules via
 not inherit Minecraft's libraries — gson and slf4j are declared explicitly in
 both build files; add new main-source dependencies there if tests need them.
 
+QA instance (owner's machine, PrismLauncher):
+`/home/thermed/.local/share/PrismLauncher/instances/Testing fabric 26.3/minecraft`
+— copy the built Fabric jar into its `mods/` folder (Fabric API is already
+installed there) to let the owner verify GUI/world behavior.
+
 ## Project conventions
 
 - Code, identifiers, and comments in English; lang entries in
