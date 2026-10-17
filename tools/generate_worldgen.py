@@ -48,14 +48,12 @@ OUR_OVERWORLD = f"{MOD_NS}:overworld"
 # TWEAKS — terrain personality lives here. Re-run the script after editing.
 # ---------------------------------------------------------------------------
 
-# Larger, more coherent landmasses: one octave lower than vanilla (-9).
-CONTINENTALNESS_FIRST_OCTAVE = -10
-
-# Smoother large-scale transitions: one octave lower than vanilla (-9).
-EROSION_FIRST_OCTAVE = -10
-
-# Wider mountain ranges: one octave lower than vanilla (-7).
-RIDGE_FIRST_OCTAVE = -8
+# Noise parameters in 26.3 use base_octave + octave_count +
+# amplitude_modifiers (the old firstOctave/amplitudes format is gone).
+# One octave lower = features twice as large.
+CONTINENTALNESS_BASE_OCTAVE = -10  # vanilla -9
+EROSION_BASE_OCTAVE = -10          # vanilla -9
+RIDGE_BASE_OCTAVE = -8             # vanilla -7
 
 # Uniform multiplier on every positive offset-spline value. Scales all land
 # (plains, hills, mountains) proportionally, preserving vanilla's relative
@@ -70,8 +68,8 @@ TERRAIN_HEIGHT_SCALE = 1.3
 # at full strength (~90 blocks at 0.7).
 ULTRA_PEAK = {
     "enabled": True,
-    "noise_first_octave": -6,
-    "noise_amplitudes": [1.0],
+    "noise_base_octave": -6,
+    "noise_octave_count": 1,
     "threshold": 0.45,       # mask fade-in starts at this noise value
     "mask_gain": 2.5,        # mask saturates 1/(1-threshold)*gain... wide ramp
     "gate_start": 0.30,      # offset value where the gate begins to open
@@ -272,9 +270,9 @@ def main() -> None:
         shutil.rmtree(OUTPUT_ROOT)
 
     noise_param_overrides = {
-        "continentalness": {"firstOctave": CONTINENTALNESS_FIRST_OCTAVE},
-        "erosion": {"firstOctave": EROSION_FIRST_OCTAVE},
-        "ridge": {"firstOctave": RIDGE_FIRST_OCTAVE},
+        "continentalness": {"base_octave": CONTINENTALNESS_BASE_OCTAVE},
+        "erosion": {"base_octave": EROSION_BASE_OCTAVE},
+        "ridge": {"base_octave": RIDGE_BASE_OCTAVE},
     }
 
     with zipfile.ZipFile(jar_path) as jar:
@@ -282,10 +280,9 @@ def main() -> None:
         settings = load_json_from_jar(jar, "worldgen/noise_settings/overworld.json")
         rewrite_namespace(settings)
         print("Rewrote router to overgenerations namespace")
-        if ULTRA_PEAK["enabled"]:
-            settings["noise_router"]["final_density"] = add_ultra_peak_term(
-                settings["noise_router"]["final_density"]
-            )
+        # NOTE: the wedge is applied to the final_density FILE below; the
+        # router only holds a string reference to that file, so wrapping both
+        # would apply the wedge twice.
         write_json("noise_settings/overworld.json", settings)
 
         # 2. All overworld density functions, fully namespaced for consistency.
@@ -326,14 +323,17 @@ def main() -> None:
             write_json(f"noise/{noise_id}.json", load_json_from_jar(jar, f"worldgen/noise/{noise_id}.json"))
         for noise_id, overrides in noise_param_overrides.items():
             param = load_json_from_jar(jar, f"worldgen/noise/{noise_id}.json")
+            # 26.3 schema: base_octave drives feature size; drop stale keys.
+            param.pop("firstOctave", None)
+            param.pop("amplitudes", None)
             param.update(overrides)
             write_json(f"noise/{noise_id}.json", param)
         if ULTRA_PEAK["enabled"]:
             write_json(
                 "noise/ultra_peaks.json",
                 {
-                    "firstOctave": ULTRA_PEAK["noise_first_octave"],
-                    "amplitudes": ULTRA_PEAK["noise_amplitudes"],
+                    "base_octave": ULTRA_PEAK["noise_base_octave"],
+                    "octave_count": ULTRA_PEAK["noise_octave_count"],
                 },
             )
         print(f"Copied {len(referenced - retargeted)} noise params + {len(retargeted)} tweaked")
