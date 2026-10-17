@@ -1,7 +1,7 @@
 package io.github.thermedwolf.overgenerations.worldgen;
 
 import io.github.thermedwolf.overgenerations.OverGenerations;
-import io.github.thermedwolf.overgenerations.mixin.NoiseBasedChunkGeneratorMixin;
+import io.github.thermedwolf.overgenerations.mixin.ChunkGeneratorAccessor;
 import net.minecraft.core.LayeredRegistryAccess;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
@@ -46,8 +46,10 @@ public final class OverworldGeneratorSwap {
             OverGenerations.LOGGER.warn("Overworld generator is not noise based; keeping vanilla terrain");
             return genSettings;
         }
+        // The biome source field lives on the ChunkGenerator base class;
+        // the accessor targets it there and works on any subclass.
         BiomeSource biomeSource =
-            ((NoiseBasedChunkGeneratorMixin) (Object) vanillaGenerator).overgenerations$biomeSource();
+            ((ChunkGeneratorAccessor) (Object) vanillaGenerator).overgenerations$biomeSource();
 
         NoiseBasedChunkGenerator overGenerationsGenerator =
             new NoiseBasedChunkGenerator(biomeSource, settingsHolder.get());

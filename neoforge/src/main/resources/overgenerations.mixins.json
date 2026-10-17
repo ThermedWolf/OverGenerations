@@ -4,7 +4,7 @@
   "package": "io.github.thermedwolf.overgenerations.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "NoiseBasedChunkGeneratorMixin"
+    "ChunkGeneratorAccessor"
   ],
   "client": [
     "CreateWorldScreenMixin"

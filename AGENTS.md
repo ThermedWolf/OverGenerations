@@ -59,7 +59,14 @@ Jars land in `fabric/build/libs/` and `neoforge/build/libs/` (plain jar, not
   (or `javap -p` against `~/.gradle/caches/fabric-loom/26.3/minecraft-merged.jar`).
   26.3 moved many classes — e.g. `WorldOpenFlows` is in
   `net.minecraft.client.gui.screens.worldselection`, `GameRules` in
-  `net.minecraft.world.level.gamerules`. Never trust remembered mappings.
+  `net.minecraft.world.level.gamerules`, and `ResourceLocation` was renamed to
+  `Identifier`. Never trust remembered mappings.
+- `@Accessor`/`@Redirect`-style targets must match the class that DECLARES the
+  member — codec getters like `g -> g.biomeSource` in `NoiseBasedChunkGenerator`
+  actually read an inherited `protected` field on `ChunkGenerator`. An accessor
+  aimed at the subclass crashes at runtime ("No candidates were found matching
+  ...") even though dev compilation passes. Check field declarations, not just
+  usages.
 - Data pack format 121. Compared to 1.21.x: configured features moved to
   `worldgen/feature` (Feature + FeatureConfiguration merged), surface rules
   became registered **material rules** (`worldgen/material_rule`,
