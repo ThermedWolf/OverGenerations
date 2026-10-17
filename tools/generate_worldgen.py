@@ -44,13 +44,13 @@ OUR_OVERWORLD = f"{MOD_NS}:overworld"
 # ---------------------------------------------------------------------------
 
 # Larger, more coherent landmasses: one octave lower than vanilla (-9).
-CONTINENTALNESS_FIRST_OCTAVE = -10
+CONTINENTALNESS_BASE_OCTAVE = -10
 
 # Smoother large-scale transitions: one octave lower than vanilla (-9).
-EROSION_FIRST_OCTAVE = -10
+EROSION_BASE_OCTAVE = -10
 
 # Wider mountain ranges: one octave lower than vanilla (-7).
-RIDGE_FIRST_OCTAVE = -8
+RIDGE_BASE_OCTAVE = -8
 
 # Mountain tops (the linear ridges_folded splines topping around 0.64-0.69)
 # are multiplied by this where they occur. ~1.5 pushes regular alpine ranges
@@ -63,8 +63,10 @@ ALPINE_TOP_VALUE_RANGE = (0.6, 0.75)  # which ridge-top values count as mountain
 # noise; only places where it exceeds ULTRA_PEAK_THRESHOLD get boosted.
 ULTRA_PEAK = {
     "enabled": True,
-    "noise_first_octave": -6,
-    "noise_amplitudes": [1.0],
+    # Single-octave mask noise (one rare large-scale roll): smaller base octave
+    # = larger peak blobs.
+    "noise_base_octave": -6,
+    "noise_base_amplitude": 1.0,
     "threshold": 0.55,     # rarity: higher = rarer
     "gain": 3.0,           # how sharply the mask saturates past the threshold
     "boost_from_y": 160,   # full boost from this height downward
@@ -187,13 +189,49 @@ def add_ultra_peak_term(final_density: dict) -> dict:
     }
 
 
-def collect_noise_ids(node, into: set) -> None:
+def ultra_peak_noise() -> dict:
+    """The noise parameter behind the ultra-peak mask in final_density.
+
+    Mod-defined, so there is no vanilla JSON to copy — this materializes the
+    ULTRA_PEAK noise knobs that the mask references, in the 26.3 schema.
+    """
+    cfg = ULTRA_PEAK
+    return {
+        "base_amplitude": cfg["noise_base_amplitude"],
+        "base_octave": cfg["noise_base_octave"],
+        "octave_count": 1,
+        "amplitude_modifiers": [1.0],
+    }
+
+
+def collect_noise_ids(node, into: set, namespace: str = "minecraft") -> None:
+    prefix = f"{namespace}:"
+
     def visit(obj: dict) -> None:
         noise = obj.get("noise")
-        if isinstance(noise, str) and noise.startswith("minecraft:"):
-            into.add(noise.removeprefix("minecraft:"))
+        if isinstance(noise, str) and noise.startswith(prefix):
+            into.add(noise.removeprefix(prefix))
 
     walk(node, visit)
+
+
+def verify_noise_references() -> None:
+    """Exits with an error if a mod-namespaced noise reference has no JSON.
+
+    A dangling reference parses fine but crashes the game at registry freeze
+    with "Unbound values in registry minecraft:worldgen/noise".
+    """
+    referenced: set[str] = set()
+    for path in sorted(OUTPUT_ROOT.rglob("*.json")):
+        collect_noise_ids(json.loads(path.read_text()), referenced, MOD_NS)
+
+    missing = [
+        noise_id
+        for noise_id in sorted(referenced)
+        if not (OUTPUT_ROOT / "noise" / f"{noise_id}.json").exists()
+    ]
+    if missing:
+        sys.exit(f"Dangling noise references (no noise/<id>.json emitted): {missing}")
 
 
 def write_json(rel_path: str, data) -> None:
@@ -216,9 +254,9 @@ def main() -> None:
         shutil.rmtree(OUTPUT_ROOT)
 
     noise_param_overrides = {
-        "continentalness": {"firstOctave": CONTINENTALNESS_FIRST_OCTAVE},
-        "erosion": {"firstOctave": EROSION_FIRST_OCTAVE},
-        "ridge": {"firstOctave": RIDGE_FIRST_OCTAVE},
+        "continentalness": {"base_octave": CONTINENTALNESS_BASE_OCTAVE},
+        "erosion": {"base_octave": EROSION_BASE_OCTAVE},
+        "ridge": {"base_octave": RIDGE_BASE_OCTAVE},
     }
 
     with zipfile.ZipFile(jar_path) as jar:
@@ -258,6 +296,8 @@ def main() -> None:
 
         # 3. Noise parameters: copy the ones our functions reference; the three
         #    terrain noises get tweaked, everything else stays vanilla-identical.
+        #    The ultra-peak noise is mod-defined (no vanilla counterpart to copy),
+        #    so it is generated from ULTRA_PEAK instead.
         referenced: set[str] = set()
         for name in function_names:
             collect_noise_ids(load_json_from_jar(jar, name.removeprefix("data/minecraft/")), referenced)
@@ -269,7 +309,12 @@ def main() -> None:
             param = load_json_from_jar(jar, f"worldgen/noise/{noise_id}.json")
             param.update(overrides)
             write_json(f"noise/{noise_id}.json", param)
+        if ULTRA_PEAK["enabled"]:
+            write_json("noise/ultra_peaks.json", ultra_peak_noise())
+            print("Generated the ultra_peaks noise parameter")
         print(f"Copied {len(referenced - retargeted)} noise params + {len(retargeted)} tweaked")
+
+    verify_noise_references()
 
     total = sum(1 for _ in OUTPUT_ROOT.rglob("*.json"))
     print(f"Wrote {total} files to {OUTPUT_ROOT}")
