@@ -17,6 +17,7 @@ run/
 runs/
 run-data/
 remappedSrc/
+logs/
 
 # OS
 .DS_Store
